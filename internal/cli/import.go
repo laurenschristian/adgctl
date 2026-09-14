@@ -57,6 +57,17 @@ func clientImportCmd() *cobra.Command {
 					}
 				}
 			}
+			rename := func(from string, p *adguard.PersistentClient) error {
+				if err := client.UpdateClient(ctx, from, p); err != nil {
+					return err
+				}
+				delete(byName, from)
+				byName[p.Name] = true
+				for _, id := range p.IDs {
+					byID[strings.ToLower(id)] = p.Name
+				}
+				return nil
+			}
 			added, updated, skipped := 0, 0, 0
 			for _, e := range entries {
 				if e.Name == "" || len(e.IDs) == 0 {
@@ -80,6 +91,16 @@ func clientImportCmd() *cobra.Command {
 					fmt.Println("update", e.Name, strings.Join(e.IDs, ","))
 				default:
 					if owner := claimedBy(byID, e.IDs); owner != "" {
+						if update && owner != e.Name {
+							if !dryRun {
+								if err := rename(owner, p); err != nil {
+									return fmt.Errorf("%s: %w", e.Name, err)
+								}
+							}
+							updated++
+							fmt.Printf("rename %q -> %q %s\n", owner, e.Name, strings.Join(e.IDs, ","))
+							continue
+						}
 						fmt.Printf("skip %s: %s already belongs to %q\n", e.Name, strings.Join(e.IDs, ","), owner)
 						skipped++
 						continue

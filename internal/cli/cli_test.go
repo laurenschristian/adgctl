@@ -270,10 +270,28 @@ func TestClientImport(t *testing.T) {
 		t.Fatal("dry run wrote")
 	}
 	out, err = run(t, "client", "import", "--file", f, "--update")
-	must(t, out, err, "add tv", "update nas", "added 1, updated 1, skipped 2")
-	if len(srv.Clients) != 2 || srv.Clients[1]["tags"].([]any)[0] != "device_tv" {
+	must(t, out, err, "add tv", "update nas", `rename "nas" -> "dup"`, "added 1, updated 2, skipped 1")
+	if len(srv.Clients) != 2 || srv.Clients[0]["name"] != "dup" || srv.Clients[1]["tags"].([]any)[0] != "device_tv" {
 		t.Fatalf("clients %v", srv.Clients)
 	}
+	// A device renamed upstream keeps its id; --update should rename the owning client, not skip.
+	ren := filepath.Join(t.TempDir(), "ren.json")
+	_ = os.WriteFile(ren, []byte(`[{"name":"NAS | Office","ids":["10.0.0.5"]}]`), 0o600)
+	// 10.0.0.5 now belongs to "dup" after the collision rename above.
+	out, err = run(t, "client", "import", "--file", ren, "--update")
+	must(t, out, err, `rename "dup" -> "NAS | Office"`, "updated 1")
+	names := map[string]bool{}
+	for _, c := range srv.Clients {
+		names[c["name"].(string)] = true
+	}
+	if !names["NAS | Office"] || names["dup"] || len(srv.Clients) != 2 {
+		t.Fatalf("rename by id failed: %v", srv.Clients)
+	}
+	// Without --update, a new name on an already-owned id is skipped as a collision.
+	coll := filepath.Join(t.TempDir(), "coll.json")
+	_ = os.WriteFile(coll, []byte(`[{"name":"Someone Else","ids":["10.0.0.5"]}]`), 0o600)
+	out, err = run(t, "client", "import", "--file", coll)
+	must(t, out, err, `already belongs to "NAS | Office"`, "skipped 1")
 	r, w, _ := os.Pipe()
 	_, _ = w.WriteString(`[{"name":"tv","ids":["10.0.0.8"]}]`)
 	_ = w.Close()
