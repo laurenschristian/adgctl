@@ -34,7 +34,7 @@ func Root() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if cmd.Name() == "init" || cmd.Name() == "version" || cmd.Name() == "help" {
+			if cmd.Name() == "init" || cmd.Name() == "help" {
 				return nil
 			}
 			cfg, err := config.Load()
@@ -62,6 +62,7 @@ func Root() *cobra.Command {
 		initCmd(), statusCmd(), statsCmd(), logCmd(), blockedCmd(),
 		onCmd(), offCmd(), checkCmd(), allowCmd(), blockCmd(), unruleCmd(),
 		rulesCmd(), filtersCmd(), refreshCmd(), clientsCmd(), rawCmd(), mcpCmd(),
+		rewritesCmd(), servicesCmd(), upstreamsCmd(), versionCmd(),
 	)
 	return root
 }
@@ -305,18 +306,22 @@ func checkCmd() *cobra.Command {
 func allowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "allow <host>...", Short: "Add an allow rule (@@||host^$important)", Args: cobra.MinimumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error { return addRules(args, adguard.AllowRule, "allowed") },
+		RunE: func(_ *cobra.Command, args []string) error {
+			return addRules(args, adguard.AllowRule, "allowed", "NotFilteredWhiteList")
+		},
 	}
 }
 
 func blockCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "block <host>...", Short: "Add a block rule (||host^)", Args: cobra.MinimumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error { return addRules(args, adguard.BlockRule, "blocked") },
+		RunE: func(_ *cobra.Command, args []string) error {
+			return addRules(args, adguard.BlockRule, "blocked", "FilteredBlackList")
+		},
 	}
 }
 
-func addRules(hosts []string, mk func(string) string, verb string) error {
+func addRules(hosts []string, mk func(string) string, verb, want string) error {
 	ctx, cancel := ctx()
 	defer cancel()
 	for _, h := range hosts {
@@ -324,10 +329,17 @@ func addRules(hosts []string, mk func(string) string, verb string) error {
 		if err != nil {
 			return err
 		}
-		if added {
+		if !added {
+			fmt.Println("already present:", h)
+			continue
+		}
+		wctx, wcancel := context.WithTimeout(ctx, 45*time.Second)
+		live := client.WaitRule(wctx, h, want)
+		wcancel()
+		if live {
 			fmt.Println(verb, h)
 		} else {
-			fmt.Println("already present:", h)
+			fmt.Println(verb, h, "(rule saved, not yet live after 45s)")
 		}
 	}
 	return nil
@@ -422,12 +434,14 @@ func refreshCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "refresh", Short: "Force-update all blocklists",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			ctx, cancel := ctx()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			if err := client.RefreshFilters(ctx); err != nil {
+			fmt.Println("refreshing lists (this blocks until AdGuard finishes)...")
+			n, err := client.RefreshFilters(ctx)
+			if err != nil {
 				return err
 			}
-			fmt.Println("refresh started")
+			fmt.Printf("updated %d list(s)\n", n)
 			return nil
 		},
 	}

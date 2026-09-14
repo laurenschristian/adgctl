@@ -152,6 +152,95 @@ func mcpServer(c *adguard.Client) *mcp.Server {
 			return nil, cl, err
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_rewrites", Description: "List DNS rewrites (local domain overrides)."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, []adguard.Rewrite, error) {
+			r, err := c.Rewrites(ctx)
+			return nil, r, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_add_rewrite", Description: "Add a DNS rewrite: domain (wildcards like *.lan ok) to an IP or CNAME target."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in adguard.Rewrite) (*mcp.CallToolResult, msgOut, error) {
+			return nil, msgOut{Message: "added " + in.Domain + " -> " + in.Answer}, c.AddRewrite(ctx, in)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_delete_rewrite", Description: "Delete a DNS rewrite (exact domain and answer)."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in adguard.Rewrite) (*mcp.CallToolResult, msgOut, error) {
+			return nil, msgOut{Message: "deleted " + in.Domain}, c.DeleteRewrite(ctx, in)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_blocked_services", Description: "Currently blocked services (ids) and the full catalog of service ids."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, map[string]any, error) {
+			b, err := c.BlockedServices(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			all, err := c.AllServices(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"blocked": b.IDs, "available": all}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_set_blocked_services", Description: "Replace the blocked services list with these ids."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			IDs []string `json:"ids"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			b, err := c.BlockedServices(ctx)
+			if err != nil {
+				return nil, msgOut{}, err
+			}
+			b.IDs = in.IDs
+			return nil, msgOut{Message: fmt.Sprintf("%d service(s) blocked", len(in.IDs))}, c.SetBlockedServices(ctx, b)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_dns_info", Description: "Upstream/fallback/bootstrap servers, cache and blocking mode."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, *adguard.DNSInfo, error) {
+			d, err := c.DNSInfo(ctx)
+			return nil, d, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_test_upstreams", Description: "Test a list of upstream servers (or the configured ones if empty) and report OK/error per server."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			Upstreams []string `json:"upstreams,omitempty"`
+		}) (*mcp.CallToolResult, adguard.TestUpstreamsResult, error) {
+			ups := in.Upstreams
+			if len(ups) == 0 {
+				d, err := c.DNSInfo(ctx)
+				if err != nil {
+					return nil, nil, err
+				}
+				ups = d.UpstreamDNS
+			}
+			r, err := c.TestUpstreams(ctx, ups)
+			return nil, r, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_set_upstreams", Description: "Replace the upstream DNS server list (e.g. https://dns.cloudflare.com/dns-query, tls://1.1.1.1)."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			Upstreams []string `json:"upstreams"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			return nil, msgOut{Message: "upstreams set"}, c.SetUpstreams(ctx, in.Upstreams)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_version", Description: "Installed AdGuard Home version and whether a newer release exists."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, map[string]any, error) {
+			st, err := c.Status(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			v, err := c.CheckVersion(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"current": st.Version, "latest": v.NewVersion, "can_autoupdate": v.CanAutoupdate}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_refresh_filters", Description: "Force re-download of all blocklists. Slow (tens of seconds)."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, msgOut, error) {
+			n, err := c.RefreshFilters(ctx)
+			return nil, msgOut{Message: fmt.Sprintf("updated %d list(s)", n)}, err
+		})
+
 	return s
 }
 
@@ -166,7 +255,7 @@ func ruleTool(ctx context.Context, c *adguard.Client, hosts []string, mk func(st
 			added++
 		}
 	}
-	return nil, msgOut{Message: fmt.Sprintf("%s %d of %d host(s); rules apply within a few seconds", verb, added, len(hosts))}, nil
+	return nil, msgOut{Message: fmt.Sprintf("%s %d of %d host(s); rules apply after AdGuard rebuilds its filter engine, usually 10-30s", verb, added, len(hosts))}, nil
 }
 
 func containsFold(s, sub string) bool {

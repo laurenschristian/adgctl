@@ -189,8 +189,14 @@ func (c *Client) SetFilterEnabled(ctx context.Context, f Filter, enabled bool) e
 	return c.do(ctx, http.MethodPost, "filtering/set_url", body, nil)
 }
 
-func (c *Client) RefreshFilters(ctx context.Context) error {
-	return c.do(ctx, http.MethodPost, "filtering/refresh", map[string]any{"whitelist": false}, nil)
+// RefreshFilters blocks while AdGuard re-downloads every list; allow minutes.
+func (c *Client) RefreshFilters(ctx context.Context) (updated int, err error) {
+	slow := *c
+	slow.HTTP = &http.Client{Timeout: 5 * time.Minute}
+	var out struct {
+		Updated int `json:"updated"`
+	}
+	return out.Updated, slow.do(ctx, http.MethodPost, "filtering/refresh", map[string]any{"whitelist": false}, &out)
 }
 
 func (c *Client) CheckHost(ctx context.Context, host string) (*CheckResult, error) {
@@ -263,3 +269,119 @@ func (c *Client) Raw(ctx context.Context, method, path string, body io.Reader) (
 
 func AllowRule(host string) string { return "@@||" + host + "^$important" }
 func BlockRule(host string) string { return "||" + host + "^" }
+
+type Rewrite struct {
+	Domain string `json:"domain"`
+	Answer string `json:"answer"`
+}
+
+func (c *Client) Rewrites(ctx context.Context) ([]Rewrite, error) {
+	var r []Rewrite
+	return r, c.do(ctx, http.MethodGet, "rewrite/list", nil, &r)
+}
+
+func (c *Client) AddRewrite(ctx context.Context, r Rewrite) error {
+	return c.do(ctx, http.MethodPost, "rewrite/add", r, nil)
+}
+
+func (c *Client) DeleteRewrite(ctx context.Context, r Rewrite) error {
+	return c.do(ctx, http.MethodPost, "rewrite/delete", r, nil)
+}
+
+type BlockedService struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type BlockedServices struct {
+	Schedule map[string]any `json:"schedule"`
+	IDs      []string       `json:"ids"`
+}
+
+func (c *Client) AllServices(ctx context.Context) ([]BlockedService, error) {
+	var out struct {
+		BlockedServices []BlockedService `json:"blocked_services"`
+	}
+	return out.BlockedServices, c.do(ctx, http.MethodGet, "blocked_services/all", nil, &out)
+}
+
+func (c *Client) BlockedServices(ctx context.Context) (*BlockedServices, error) {
+	var b BlockedServices
+	return &b, c.do(ctx, http.MethodGet, "blocked_services/get", nil, &b)
+}
+
+func (c *Client) SetBlockedServices(ctx context.Context, b *BlockedServices) error {
+	if b.Schedule == nil {
+		b.Schedule = map[string]any{"time_zone": "UTC"}
+	}
+	if b.IDs == nil {
+		b.IDs = []string{}
+	}
+	return c.do(ctx, http.MethodPut, "blocked_services/update", b, nil)
+}
+
+// DNSInfo is the subset of /dns_info most people care about; Raw holds the rest.
+type DNSInfo struct {
+	UpstreamDNS    []string `json:"upstream_dns"`
+	FallbackDNS    []string `json:"fallback_dns"`
+	BootstrapDNS   []string `json:"bootstrap_dns"`
+	UpstreamMode   string   `json:"upstream_mode"`
+	CacheEnabled   bool     `json:"cache_enabled"`
+	CacheOptimist  bool     `json:"cache_optimistic"`
+	EnableDNSSEC   bool     `json:"dnssec_enabled"`
+	ProtectionOn   bool     `json:"protection_enabled"`
+	BlockingMode   string   `json:"blocking_mode"`
+	RateLimit      int      `json:"ratelimit"`
+	UpstreamTimout int      `json:"upstream_timeout"`
+}
+
+func (c *Client) DNSInfo(ctx context.Context) (*DNSInfo, error) {
+	var d DNSInfo
+	return &d, c.do(ctx, http.MethodGet, "dns_info", nil, &d)
+}
+
+// SetUpstreams updates only the upstream list; other dns_config fields stay as they are.
+func (c *Client) SetUpstreams(ctx context.Context, upstreams []string) error {
+	return c.do(ctx, http.MethodPost, "dns_config", map[string]any{"upstream_dns": upstreams}, nil)
+}
+
+type TestUpstreamsResult map[string]string
+
+func (c *Client) TestUpstreams(ctx context.Context, upstreams []string) (TestUpstreamsResult, error) {
+	var r TestUpstreamsResult
+	body := map[string]any{"upstream_dns": upstreams, "bootstrap_dns": []string{"1.1.1.1", "9.9.9.9"}}
+	return r, c.do(ctx, http.MethodPost, "test_upstream_dns", body, &r)
+}
+
+type VersionInfo struct {
+	NewVersion    string `json:"new_version"`
+	Announcement  string `json:"announcement"`
+	CanAutoupdate bool   `json:"can_autoupdate"`
+	Disabled      bool   `json:"disabled"`
+}
+
+func (c *Client) CheckVersion(ctx context.Context) (*VersionInfo, error) {
+	var v VersionInfo
+	return &v, c.do(ctx, http.MethodPost, "version.json", map[string]any{"recheck_now": true}, &v)
+}
+
+func (c *Client) Update(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "update", nil, nil)
+}
+
+// WaitRule polls check_host until the host reports the wanted reason or the ctx ends.
+func (c *Client) WaitRule(ctx context.Context, host, wantReason string) bool {
+	t := time.NewTicker(300 * time.Millisecond)
+	defer t.Stop()
+	for {
+		r, err := c.CheckHost(ctx, host)
+		if err == nil && r.Reason == wantReason {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+		}
+	}
+}
