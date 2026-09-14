@@ -82,9 +82,9 @@ func emit(v any) error {
 func table(rows [][]string) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	for _, r := range rows {
-		fmt.Fprintln(w, strings.Join(r, "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(r, "\t"))
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func initCmd() *cobra.Command {
@@ -493,7 +493,7 @@ func rawCmd() *cobra.Command {
 			} else {
 				out, err = client.Raw(ctx, method, args[0], nil)
 			}
-			os.Stdout.Write(out)
+			_, _ = os.Stdout.Write(out)
 			if len(out) > 0 && out[len(out)-1] != '\n' {
 				fmt.Println()
 			}

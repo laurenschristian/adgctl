@@ -131,7 +131,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	data, _ := io.ReadAll(res.Body)
 	if res.StatusCode >= 300 {
 		return fmt.Errorf("adguard %s %s: %s: %s", method, path, res.Status, strings.TrimSpace(string(data)))
@@ -259,7 +259,7 @@ func (c *Client) Raw(ctx context.Context, method, path string, body io.Reader) (
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	data, _ := io.ReadAll(res.Body)
 	if res.StatusCode >= 300 {
 		return data, fmt.Errorf("adguard %s %s: %s", method, path, res.Status)

@@ -190,19 +190,19 @@ func clientCmd() *cobra.Command {
 			fmt.Println("deleted client", a[0])
 			return nil
 		}}
-	c.AddCommand(add, rm)
+	c.AddCommand(add, rm, clientImportCmd())
 	return c
 }
 
 func logConfigCmd() *cobra.Command {
 	var days int
 	var anon string
-	var clear bool
+	var clearLog bool
 	c := &cobra.Command{Use: "logconfig", Short: "Query log retention and anonymization",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := ctx()
 			defer cancel()
-			if clear {
+			if clearLog {
 				if err := client.ClearQueryLog(ctx); err != nil {
 					return err
 				}
@@ -231,7 +231,7 @@ func logConfigCmd() *cobra.Command {
 		}}
 	c.Flags().IntVar(&days, "days", 0, "retention in days (1, 7, 30, 90)")
 	c.Flags().StringVar(&anon, "anonymize", "", "on|off: mask client IPs in the log")
-	c.Flags().BoolVar(&clear, "clear", false, "delete the whole query log")
+	c.Flags().BoolVar(&clearLog, "clear", false, "delete the whole query log")
 	return c
 }
 

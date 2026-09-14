@@ -28,6 +28,7 @@ adgctl version                # AdGuard version + update check (--update)
 adgctl clients                # discovered + named clients
 adgctl client add kids-ipad --ids 10.0.0.42 --block-services tiktok,roblox
 adgctl client rm kids-ipad
+eerox export --adguard | adgctl client import   # name every eero device (--update, --dry-run)
 adgctl access --deny 10.0.0.99          # allowed / disallowed clients, blocked hostnames
 adgctl safesearch on | safebrowsing on | parental on
 adgctl tls                    # HTTPS / DoT / DoQ and certificate state
@@ -77,6 +78,16 @@ Ask things like "why is quickbooks failing on the office network" and the agent 
 ## Coverage
 
 Every settings surface of the web UI except the write side of TLS and DHCP (one-time setup, done in the UI): status, stats, query log, protection, user rules, check_host, blocklists, rewrites, blocked services, upstreams, clients, access lists, safe search, safe browsing, parental, log and stats config, version and update. Anything else is `adgctl raw <path>`.
+
+## Development
+
+```
+make hooks    # gofmt, dash check, gitleaks, build, lint on commit; tests + coverage floor on push
+make test
+make cover    # floor in scripts/coverage.sh
+make lint     # golangci-lint, config in .golangci.yml
+make sec      # gosec
+```
 
 ## Notes
 

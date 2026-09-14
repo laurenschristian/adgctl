@@ -39,6 +39,14 @@ type filterIn struct {
 	NameContains string `json:"name_contains" jsonschema:"case-insensitive substring of the blocklist name"`
 	Enabled      bool   `json:"enabled"`
 }
+type addClientIn struct {
+	Name            string   `json:"name"`
+	IDs             []string `json:"ids" jsonschema:"IPs, CIDRs, MACs or ClientIDs"`
+	Tags            []string `json:"tags,omitempty" jsonschema:"e.g. device_phone, user_child"`
+	Upstreams       []string `json:"upstreams,omitempty" jsonschema:"per-client upstream servers"`
+	BlockedServices []string `json:"blocked_services,omitempty" jsonschema:"per-client blocked service ids"`
+	NoFilter        bool     `json:"no_filter,omitempty" jsonschema:"bypass filtering for this client"`
+}
 type msgOut struct {
 	Message string `json:"message"`
 }
@@ -320,15 +328,10 @@ func mcpServer(c *adguard.Client) *mcp.Server {
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "adguard_add_client", Description: "Create a named persistent client (ids = IPs, CIDRs, MACs, ClientIDs) with optional per-client settings."},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in adguard.PersistentClient) (*mcp.CallToolResult, msgOut, error) {
-			if in.BlockedServices == nil && !in.UseGlobalServices {
-				in.UseGlobalServices = true
-			}
-			if !in.FilteringEnabled && !in.UseGlobalSettings {
-				in.UseGlobalSettings = true
-				in.FilteringEnabled = true
-			}
-			return nil, msgOut{Message: "added client " + in.Name}, c.AddClient(ctx, &in)
+		func(ctx context.Context, _ *mcp.CallToolRequest, in addClientIn) (*mcp.CallToolResult, msgOut, error) {
+			p := &adguard.PersistentClient{Name: in.Name, IDs: in.IDs, Tags: in.Tags, Upstreams: in.Upstreams, BlockedServices: in.BlockedServices,
+				UseGlobalSettings: !in.NoFilter && len(in.BlockedServices) == 0, FilteringEnabled: !in.NoFilter, UseGlobalServices: len(in.BlockedServices) == 0}
+			return nil, msgOut{Message: "added client " + in.Name}, c.AddClient(ctx, p)
 		})
 
 	mcp.AddTool(s, &mcp.Tool{Name: "adguard_delete_client", Description: "Delete a named persistent client."},

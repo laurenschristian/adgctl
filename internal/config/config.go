@@ -2,6 +2,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -56,7 +57,7 @@ func Load() (*Config, error) {
 // Resolve fills Password from PasswordCmd when needed and validates.
 func (c *Config) Resolve() error {
 	if c.Password == "" && c.PasswordCmd != "" {
-		out, err := exec.Command("sh", "-c", c.PasswordCmd).Output()
+		out, err := exec.CommandContext(context.Background(), "sh", "-c", c.PasswordCmd).Output()
 		if err != nil {
 			return errors.New("password_cmd failed: " + err.Error())
 		}
