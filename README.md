@@ -1,5 +1,7 @@
 # adgctl
 
+<img src="assets/icon.png" alt="adgctl icon" width="96" align="right">
+
 CLI and MCP server for [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome). One static binary, talks to the REST API, no dependencies on the AdGuard host.
 
 ```
