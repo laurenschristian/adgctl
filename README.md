@@ -32,7 +32,7 @@ Or grab a binary from [Releases](https://github.com/laurenschristian/adgctl/rele
 
 ## Configure
 
-Flags, then env, then `~/.config/adgctl/config.yaml`.
+Flags, then env, then a config file (`~/.config/adgctl/config.yaml` on Linux, `~/Library/Application Support/adgctl/config.yaml` on macOS, or `$ADGCTL_CONFIG`).
 
 ```
 adgctl init --url http://10.0.0.2:3000 --user admin --password-cmd "security find-generic-password -s adguard -w"
