@@ -63,6 +63,8 @@ func Root() *cobra.Command {
 		onCmd(), offCmd(), checkCmd(), allowCmd(), blockCmd(), unruleCmd(),
 		rulesCmd(), filtersCmd(), refreshCmd(), clientsCmd(), rawCmd(), mcpCmd(),
 		rewritesCmd(), servicesCmd(), upstreamsCmd(), versionCmd(),
+		accessCmd(), safesearchCmd(), toggleCmd("safebrowsing", "Block known malware/phishing hosts via AdGuard SB"), toggleCmd("parental", "Block adult content via AdGuard parental control"),
+		tlsCmd(), dhcpCmd(), clientCmd(), logConfigCmd(), statsConfigCmd(),
 	)
 	return root
 }

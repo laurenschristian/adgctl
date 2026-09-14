@@ -385,3 +385,182 @@ func (c *Client) WaitRule(ctx context.Context, host, wantReason string) bool {
 		}
 	}
 }
+
+type AccessList struct {
+	AllowedClients    []string `json:"allowed_clients"`
+	DisallowedClients []string `json:"disallowed_clients"`
+	BlockedHosts      []string `json:"blocked_hosts"`
+}
+
+func (c *Client) Access(ctx context.Context) (*AccessList, error) {
+	var a AccessList
+	return &a, c.do(ctx, http.MethodGet, "access/list", nil, &a)
+}
+
+func (c *Client) SetAccess(ctx context.Context, a *AccessList) error {
+	for _, p := range []*[]string{&a.AllowedClients, &a.DisallowedClients, &a.BlockedHosts} {
+		if *p == nil {
+			*p = []string{}
+		}
+	}
+	return c.do(ctx, http.MethodPost, "access/set", a, nil)
+}
+
+type SafeSearch struct {
+	Enabled    bool `json:"enabled"`
+	Bing       bool `json:"bing"`
+	DuckDuckGo bool `json:"duckduckgo"`
+	Ecosia     bool `json:"ecosia"`
+	Google     bool `json:"google"`
+	Pixabay    bool `json:"pixabay"`
+	Yandex     bool `json:"yandex"`
+	YouTube    bool `json:"youtube"`
+}
+
+func (c *Client) SafeSearch(ctx context.Context) (*SafeSearch, error) {
+	var s SafeSearch
+	return &s, c.do(ctx, http.MethodGet, "safesearch/status", nil, &s)
+}
+
+func (c *Client) SetSafeSearch(ctx context.Context, s *SafeSearch) error {
+	return c.do(ctx, http.MethodPut, "safesearch/settings", s, nil)
+}
+
+type enabledOnly struct {
+	Enabled bool `json:"enabled"`
+}
+
+// Toggle drives the enable/disable pairs: feature is "safebrowsing" or "parental".
+func (c *Client) Toggle(ctx context.Context, feature string, on bool) error {
+	verb := "disable"
+	if on {
+		verb = "enable"
+	}
+	return c.do(ctx, http.MethodPost, feature+"/"+verb, nil, nil)
+}
+
+func (c *Client) ToggleStatus(ctx context.Context, feature string) (bool, error) {
+	var e enabledOnly
+	return e.Enabled, c.do(ctx, http.MethodGet, feature+"/status", nil, &e)
+}
+
+type TLSStatus struct {
+	Enabled        bool   `json:"enabled"`
+	ServerName     string `json:"server_name"`
+	ForceHTTPS     bool   `json:"force_https"`
+	PortHTTPS      int    `json:"port_https"`
+	PortDoT        int    `json:"port_dns_over_tls"`
+	PortDoQ        int    `json:"port_dns_over_quic"`
+	ValidCert      bool   `json:"valid_cert"`
+	ValidChain     bool   `json:"valid_chain"`
+	ValidKey       bool   `json:"valid_key"`
+	NotAfter       string `json:"not_after"`
+	Subject        string `json:"subject"`
+	Issuer         string `json:"issuer"`
+	ServePlainDNS  bool   `json:"serve_plain_dns"`
+	WarningMessage string `json:"warning_validation"`
+}
+
+func (c *Client) TLS(ctx context.Context) (*TLSStatus, error) {
+	var t TLSStatus
+	return &t, c.do(ctx, http.MethodGet, "tls/status", nil, &t)
+}
+
+type DHCPLease struct {
+	MAC      string `json:"mac"`
+	IP       string `json:"ip"`
+	Hostname string `json:"hostname"`
+	Expires  string `json:"expires,omitempty"`
+}
+
+type DHCPStatus struct {
+	Enabled      bool        `json:"enabled"`
+	Interface    string      `json:"interface_name"`
+	V4           any         `json:"v4"`
+	Leases       []DHCPLease `json:"leases"`
+	StaticLeases []DHCPLease `json:"static_leases"`
+}
+
+func (c *Client) DHCP(ctx context.Context) (*DHCPStatus, error) {
+	var d DHCPStatus
+	return &d, c.do(ctx, http.MethodGet, "dhcp/status", nil, &d)
+}
+
+// PersistentClient is the editable client record; IDs are IPs, CIDRs, MACs or ClientIDs.
+type PersistentClient struct {
+	Name              string   `json:"name"`
+	IDs               []string `json:"ids"`
+	Tags              []string `json:"tags"`
+	UseGlobalSettings bool     `json:"use_global_settings"`
+	FilteringEnabled  bool     `json:"filtering_enabled"`
+	ParentalEnabled   bool     `json:"parental_enabled"`
+	SafebrowsingOn    bool     `json:"safebrowsing_enabled"`
+	UseGlobalServices bool     `json:"use_global_blocked_services"`
+	BlockedServices   []string `json:"blocked_services"`
+	Upstreams         []string `json:"upstreams"`
+	SafeSearch        struct {
+		Enabled bool `json:"enabled"`
+	} `json:"safe_search"`
+}
+
+func (c *Client) AddClient(ctx context.Context, p *PersistentClient) error {
+	fillClient(p)
+	return c.do(ctx, http.MethodPost, "clients/add", p, nil)
+}
+
+func (c *Client) UpdateClient(ctx context.Context, name string, p *PersistentClient) error {
+	fillClient(p)
+	return c.do(ctx, http.MethodPost, "clients/update", map[string]any{"name": name, "data": p}, nil)
+}
+
+func (c *Client) DeleteClient(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodPost, "clients/delete", map[string]any{"name": name}, nil)
+}
+
+func fillClient(p *PersistentClient) {
+	for _, s := range []*[]string{&p.IDs, &p.Tags, &p.BlockedServices, &p.Upstreams} {
+		if *s == nil {
+			*s = []string{}
+		}
+	}
+}
+
+type LogConfig struct {
+	Enabled           bool     `json:"enabled"`
+	IntervalMs        int64    `json:"interval"`
+	AnonymizeClientIP bool     `json:"anonymize_client_ip"`
+	Ignored           []string `json:"ignored"`
+}
+
+func (c *Client) QueryLogConfig(ctx context.Context) (*LogConfig, error) {
+	var l LogConfig
+	return &l, c.do(ctx, http.MethodGet, "querylog/config", nil, &l)
+}
+
+func (c *Client) SetQueryLogConfig(ctx context.Context, l *LogConfig) error {
+	if l.Ignored == nil {
+		l.Ignored = []string{}
+	}
+	return c.do(ctx, http.MethodPut, "querylog/config/update", l, nil)
+}
+
+func (c *Client) StatsConfig(ctx context.Context) (*LogConfig, error) {
+	var l LogConfig
+	return &l, c.do(ctx, http.MethodGet, "stats/config", nil, &l)
+}
+
+func (c *Client) SetStatsConfig(ctx context.Context, l *LogConfig) error {
+	if l.Ignored == nil {
+		l.Ignored = []string{}
+	}
+	body := map[string]any{"enabled": l.Enabled, "interval": l.IntervalMs, "ignored": l.Ignored}
+	return c.do(ctx, http.MethodPut, "stats/config/update", body, nil)
+}
+
+func (c *Client) ClearQueryLog(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "querylog_clear", nil, nil)
+}
+
+func (c *Client) ResetStats(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "stats_reset", nil, nil)
+}

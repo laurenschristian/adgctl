@@ -241,6 +241,151 @@ func mcpServer(c *adguard.Client) *mcp.Server {
 			return nil, msgOut{Message: fmt.Sprintf("updated %d list(s)", n)}, err
 		})
 
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_access", Description: "Allowed/disallowed client lists and blocked hostnames."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, *adguard.AccessList, error) {
+			a, err := c.Access(ctx)
+			return nil, a, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_set_access", Description: "Replace access lists. Omit a field to keep it."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			AllowedClients    *[]string `json:"allowed_clients,omitempty"`
+			DisallowedClients *[]string `json:"disallowed_clients,omitempty"`
+			BlockedHosts      *[]string `json:"blocked_hosts,omitempty"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			a, err := c.Access(ctx)
+			if err != nil {
+				return nil, msgOut{}, err
+			}
+			if in.AllowedClients != nil {
+				a.AllowedClients = *in.AllowedClients
+			}
+			if in.DisallowedClients != nil {
+				a.DisallowedClients = *in.DisallowedClients
+			}
+			if in.BlockedHosts != nil {
+				a.BlockedHosts = *in.BlockedHosts
+			}
+			return nil, msgOut{Message: "access lists updated"}, c.SetAccess(ctx, a)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_safety_features", Description: "State of safe search, safe browsing and parental control."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, map[string]bool, error) {
+			ss, err := c.SafeSearch(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			sb, err := c.ToggleStatus(ctx, "safebrowsing")
+			if err != nil {
+				return nil, nil, err
+			}
+			pc, err := c.ToggleStatus(ctx, "parental")
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]bool{"safesearch": ss.Enabled, "safebrowsing": sb, "parental": pc}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_set_safety_feature", Description: "Turn safesearch, safebrowsing or parental on/off."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			Feature string `json:"feature" jsonschema:"safesearch | safebrowsing | parental"`
+			Enabled bool   `json:"enabled"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			var err error
+			switch in.Feature {
+			case "safesearch":
+				var ss *adguard.SafeSearch
+				if ss, err = c.SafeSearch(ctx); err == nil {
+					ss.Enabled = in.Enabled
+					err = c.SetSafeSearch(ctx, ss)
+				}
+			case "safebrowsing", "parental":
+				err = c.Toggle(ctx, in.Feature, in.Enabled)
+			default:
+				return nil, msgOut{}, fmt.Errorf("unknown feature %q", in.Feature)
+			}
+			return nil, msgOut{Message: in.Feature + " updated"}, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_tls", Description: "Encryption (HTTPS/DoT/DoQ) status and certificate validity."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, *adguard.TLSStatus, error) {
+			t, err := c.TLS(ctx)
+			return nil, t, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_dhcp", Description: "DHCP server status and leases."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, *adguard.DHCPStatus, error) {
+			d, err := c.DHCP(ctx)
+			return nil, d, err
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_add_client", Description: "Create a named persistent client (ids = IPs, CIDRs, MACs, ClientIDs) with optional per-client settings."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in adguard.PersistentClient) (*mcp.CallToolResult, msgOut, error) {
+			if in.BlockedServices == nil && !in.UseGlobalServices {
+				in.UseGlobalServices = true
+			}
+			if !in.FilteringEnabled && !in.UseGlobalSettings {
+				in.UseGlobalSettings = true
+				in.FilteringEnabled = true
+			}
+			return nil, msgOut{Message: "added client " + in.Name}, c.AddClient(ctx, &in)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_delete_client", Description: "Delete a named persistent client."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			Name string `json:"name"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			return nil, msgOut{Message: "deleted client " + in.Name}, c.DeleteClient(ctx, in.Name)
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_log_config", Description: "Query log retention/anonymization and stats window."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, map[string]any, error) {
+			l, err := c.QueryLogConfig(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			st, err := c.StatsConfig(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{"querylog": l, "stats": st}, nil
+		})
+
+	mcp.AddTool(s, &mcp.Tool{Name: "adguard_set_log_config", Description: "Set query log retention days, stats window days, and/or client IP anonymization."},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in struct {
+			QueryLogDays *int  `json:"querylog_days,omitempty"`
+			StatsDays    *int  `json:"stats_days,omitempty"`
+			Anonymize    *bool `json:"anonymize_client_ip,omitempty"`
+		}) (*mcp.CallToolResult, msgOut, error) {
+			const day = int64(86_400_000)
+			if in.QueryLogDays != nil || in.Anonymize != nil {
+				l, err := c.QueryLogConfig(ctx)
+				if err != nil {
+					return nil, msgOut{}, err
+				}
+				if in.QueryLogDays != nil {
+					l.IntervalMs = int64(*in.QueryLogDays) * day
+				}
+				if in.Anonymize != nil {
+					l.AnonymizeClientIP = *in.Anonymize
+				}
+				if err := c.SetQueryLogConfig(ctx, l); err != nil {
+					return nil, msgOut{}, err
+				}
+			}
+			if in.StatsDays != nil {
+				st, err := c.StatsConfig(ctx)
+				if err != nil {
+					return nil, msgOut{}, err
+				}
+				st.IntervalMs = int64(*in.StatsDays) * day
+				if err := c.SetStatsConfig(ctx, st); err != nil {
+					return nil, msgOut{}, err
+				}
+			}
+			return nil, msgOut{Message: "log config updated"}, nil
+		})
+
 	return s
 }
 
